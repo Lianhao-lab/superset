@@ -21,4 +21,14 @@ export const URL = {
   DATASET_LIST: 'tablemodelview/list',
   LOGIN: 'login/',
   WELCOME: 'superset/welcome/',
+  DASHBOARD_LIST: 'dashboard/list',
+  DATABASE_LIST: 'databaseview/list',
+  SQLLAB: 'sqllab',
+  CHART_LIST: 'chart/list',
 } as const;
+
+// Legacy exports for backwards compatibility with migrated Cypress tests
+export const DASHBOARD_LIST = URL.DASHBOARD_LIST;
+export const DATABASE_LIST = URL.DATABASE_LIST;
+export const SQLLAB = URL.SQLLAB;
+export const CHART_LIST = URL.CHART_LIST;
