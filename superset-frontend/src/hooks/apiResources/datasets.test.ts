@@ -17,7 +17,6 @@
  * under the License.
  */
 import { renderHook } from '@testing-library/react-hooks';
-import { JsonResponse } from '@superset-ui/core';
 import { Dataset } from 'src/components/Chart/types';
 import {
   cachedSupersetGet,
@@ -45,14 +44,25 @@ jest.mock('@superset-ui/core', () => ({
 
 const mockedCachedSupersetGet = jest.mocked(cachedSupersetGet);
 const mockedSupersetGetCacheDelete = jest.mocked(supersetGetCache.delete);
+const mockExtension = jest.fn();
 
-// Typed response helper to consolidate mocking boilerplate
-// Uses 'as unknown as JsonResponse' because we're intentionally mocking
-// only the json field without the full Response object for test simplicity
-const buildCachedResponse = <T>(result: T) =>
-  ({
-    json: { result },
-  }) as unknown as JsonResponse;
+// Helper to configure extension mock for extension path tests
+function setupExtensionMock() {
+  mockGetExtensionsRegistry.mockReturnValue({
+    get: jest.fn((key: any) =>
+      key === 'load.drillby.options' ? mockExtension : undefined,
+    ) as any,
+  });
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+afterEach(() => {
+  // Restore default behavior to prevent test pollution
+  mockGetExtensionsRegistry.mockReturnValue({ get: () => undefined });
+});
 
 test('getDatasetId extracts numeric ID from string datasource ID', () => {
   expect(getDatasetId('123__table')).toBe(123);
@@ -62,6 +72,21 @@ test('getDatasetId extracts numeric ID from string datasource ID', () => {
 test('getDatasetId handles numeric datasource ID', () => {
   expect(getDatasetId(789)).toBe(789);
   expect(getDatasetId(0)).toBe(0);
+});
+
+test('getDatasetId handles non-numeric string ID', () => {
+  const result = getDatasetId('abc');
+  expect(Number.isNaN(result)).toBe(true);
+});
+
+test('getDatasetId handles empty string ID', () => {
+  const result = getDatasetId('');
+  expect(result).toBe(0);
+});
+
+test('getDatasetId handles string with trailing underscores', () => {
+  const result = getDatasetId('123__');
+  expect(result).toBe(123);
 });
 
 test('createVerboseMap creates verbose_map from columns', () => {
@@ -84,7 +109,6 @@ test('createVerboseMap creates verbose_map from columns', () => {
 });
 
 test('createVerboseMap creates verbose_map from metrics', () => {
-  // Partial dataset with only metrics - createVerboseMap doesn't require full Dataset
   const dataset = {
     columns: [],
     metrics: [
@@ -92,7 +116,7 @@ test('createVerboseMap creates verbose_map from metrics', () => {
       { metric_name: 'metric2', verbose_name: 'Metric 2' },
       { metric_name: 'metric3' }, // no verbose_name
     ],
-  } as unknown as Dataset;
+  } as any;
 
   const verboseMap = createVerboseMap(dataset);
 
@@ -122,10 +146,6 @@ test('createVerboseMap handles undefined dataset', () => {
   expect(verboseMap).toEqual({});
 });
 
-beforeEach(() => {
-  jest.clearAllMocks();
-});
-
 test('useDatasetDrillInfo fetches dataset drill info successfully', async () => {
   const mockDataset = {
     id: 123,
@@ -133,14 +153,21 @@ test('useDatasetDrillInfo fetches dataset drill info successfully', async () => 
     metrics: [{ metric_name: 'metric1', verbose_name: 'Metric 1' }],
   };
 
-  mockedCachedSupersetGet.mockResolvedValue(buildCachedResponse(mockDataset));
+  mockedCachedSupersetGet.mockResolvedValue({
+    json: {
+      result: mockDataset,
+    },
+  } as any);
 
-  const { result, waitFor } = renderHook(() => useDatasetDrillInfo(123, 456));
+  const { result, waitForNextUpdate } = renderHook(() =>
+    useDatasetDrillInfo(123, 456),
+  );
 
   expect(result.current.status).toBe('loading');
 
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
+  expect(result.current.status).toBe('complete');
   expect(result.current.result).toEqual({
     ...mockDataset,
     verbose_map: {
@@ -154,10 +181,13 @@ test('useDatasetDrillInfo fetches dataset drill info successfully', async () => 
 test('useDatasetDrillInfo handles network errors', async () => {
   mockedCachedSupersetGet.mockRejectedValue(new Error('Network error'));
 
-  const { result, waitFor } = renderHook(() => useDatasetDrillInfo(123, 456));
+  const { result, waitForNextUpdate } = renderHook(() =>
+    useDatasetDrillInfo(123, 456),
+  );
 
-  await waitFor(() => expect(result.current.status).toBe('error'));
+  await waitForNextUpdate();
 
+  expect(result.current.status).toBe('error');
   expect(result.current.result).toBeNull();
   expect(result.current.error).toBeInstanceOf(Error);
   expect(result.current.error?.message).toBe('Network error');
@@ -185,14 +215,19 @@ test('useDatasetDrillInfo extracts dataset ID from string format', async () => {
     metrics: [],
   };
 
-  mockedCachedSupersetGet.mockResolvedValue(buildCachedResponse(mockDataset));
+  mockedCachedSupersetGet.mockResolvedValue({
+    json: {
+      result: mockDataset,
+    },
+  } as any);
 
-  const { result, waitFor } = renderHook(() =>
+  const { result, waitForNextUpdate } = renderHook(() =>
     useDatasetDrillInfo('123__table', 456),
   );
 
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
+  expect(result.current.status).toBe('complete');
   expect(mockedCachedSupersetGet).toHaveBeenCalledWith({
     endpoint: '/api/v1/dataset/123/drill_info/?q=(dashboard_id:456)',
   });
@@ -205,11 +240,15 @@ test('useDatasetDrillInfo does not clear cache on successful fetch', async () =>
     metrics: [],
   };
 
-  mockedCachedSupersetGet.mockResolvedValue(buildCachedResponse(mockDataset));
+  mockedCachedSupersetGet.mockResolvedValue({
+    json: {
+      result: mockDataset,
+    },
+  } as any);
 
-  const { result, waitFor } = renderHook(() => useDatasetDrillInfo(123, 456));
+  const { waitForNextUpdate } = renderHook(() => useDatasetDrillInfo(123, 456));
 
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
   // Cache should NOT be deleted on success
   expect(mockedSupersetGetCacheDelete).not.toHaveBeenCalled();
@@ -223,12 +262,19 @@ test('useDatasetDrillInfo creates new verbose_map from columns and metrics', asy
     metrics: [{ metric_name: 'metric1', verbose_name: 'Metric 1' }],
   };
 
-  mockedCachedSupersetGet.mockResolvedValue(buildCachedResponse(mockDataset));
+  mockedCachedSupersetGet.mockResolvedValue({
+    json: {
+      result: mockDataset,
+    },
+  } as any);
 
-  const { result, waitFor } = renderHook(() => useDatasetDrillInfo(123, 456));
+  const { result, waitForNextUpdate } = renderHook(() =>
+    useDatasetDrillInfo(123, 456),
+  );
 
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
+  expect(result.current.status).toBe('complete');
   // Verify verbose_map is created from columns/metrics (existing verbose_map replaced)
   expect(result.current.result?.verbose_map).toEqual({
     col1: 'Column 1',
@@ -239,53 +285,28 @@ test('useDatasetDrillInfo creates new verbose_map from columns and metrics', asy
 });
 
 test('useDatasetDrillInfo handles NaN datasource ID from malformed string', async () => {
-  mockedCachedSupersetGet.mockResolvedValue(
-    buildCachedResponse({ id: NaN, columns: [], metrics: [] }),
+  mockedCachedSupersetGet.mockResolvedValue({
+    json: {
+      result: { id: NaN, columns: [], metrics: [] },
+    },
+  } as any);
+
+  const { result, waitForNextUpdate } = renderHook(() =>
+    useDatasetDrillInfo('abc', 456),
   );
 
-  const { result, waitFor } = renderHook(() => useDatasetDrillInfo('abc', 456));
-
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
   // Verify hook calls endpoint with NaN (API will handle validation)
   expect(mockedCachedSupersetGet).toHaveBeenCalledWith({
     endpoint: '/api/v1/dataset/NaN/drill_info/?q=(dashboard_id:456)',
   });
-});
-
-test('getDatasetId handles non-numeric string ID', () => {
-  const result = getDatasetId('abc');
-  expect(result).toBeNaN();
-});
-
-test('getDatasetId handles empty string ID', () => {
-  const result = getDatasetId('');
-  expect(result).toBe(0);
-});
-
-test('getDatasetId handles string with trailing underscores', () => {
-  const result = getDatasetId('123__');
-  expect(result).toBe(123);
-});
-
-// Extension tests - mock setup/teardown for extension registry
-const mockExtension = jest.fn();
-
-beforeEach(() => {
-  // Configure the module-level mock to return our extension for extension tests
-  mockGetExtensionsRegistry.mockReturnValue({
-    get: jest.fn((key: string) =>
-      key === 'load.drillby.options' ? mockExtension : undefined,
-    ) as any,
-  });
-});
-
-afterEach(() => {
-  // Restore default behavior to prevent test pollution
-  mockGetExtensionsRegistry.mockReturnValue({ get: () => undefined });
+  expect(result.current.status).toBe('complete');
 });
 
 test('useDatasetDrillInfo fetches dataset via extension when extension and formData provided', async () => {
+  setupExtensionMock();
+
   const mockFormData = {
     viz_type: 'table',
     datasource: '123__table',
@@ -297,20 +318,23 @@ test('useDatasetDrillInfo fetches dataset via extension when extension and formD
     metrics: [{ metric_name: 'metric1', verbose_name: 'Metric 1' }],
   };
 
-  mockExtension.mockResolvedValue(buildCachedResponse(mockDataset));
+  mockExtension.mockResolvedValue({
+    json: { result: mockDataset },
+  } as any);
 
-  const { result, waitFor } = renderHook(() =>
+  const { result, waitForNextUpdate } = renderHook(() =>
     useDatasetDrillInfo(123, 456, mockFormData),
   );
 
   expect(result.current.status).toBe('loading');
 
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
   // Verify extension was called with correct arguments
   expect(mockExtension).toHaveBeenCalledWith(123, mockFormData);
 
   // Verify result contains dataset with verbose_map
+  expect(result.current.status).toBe('complete');
   expect(result.current.result).toEqual({
     ...mockDataset,
     verbose_map: {
@@ -325,18 +349,21 @@ test('useDatasetDrillInfo fetches dataset via extension when extension and formD
 });
 
 test('useDatasetDrillInfo handles extension throwing error', async () => {
+  setupExtensionMock();
+
   const mockFormData = { viz_type: 'table', datasource: '123__table' };
   const extensionError = new Error('Extension failed');
 
   mockExtension.mockRejectedValue(extensionError);
 
-  const { result, waitFor } = renderHook(() =>
+  const { result, waitForNextUpdate } = renderHook(() =>
     useDatasetDrillInfo(123, 456, mockFormData),
   );
 
-  await waitFor(() => expect(result.current.status).toBe('error'));
+  await waitForNextUpdate();
 
   // Verify error state
+  expect(result.current.status).toBe('error');
   expect(result.current.result).toBeNull();
   expect(result.current.error).toBeInstanceOf(Error);
   expect(result.current.error?.message).toBe('Extension failed');
@@ -349,35 +376,74 @@ test('useDatasetDrillInfo handles extension throwing error', async () => {
 });
 
 test('useDatasetDrillInfo handles extension returning malformed payload with undefined result', async () => {
+  setupExtensionMock();
+
   const mockFormData = { viz_type: 'table', datasource: '123__table' };
 
   // Extension returns undefined instead of expected shape
-  mockExtension.mockResolvedValue(undefined);
+  mockExtension.mockResolvedValue(undefined as any);
 
-  const { result, waitFor } = renderHook(() =>
+  const { result, waitForNextUpdate } = renderHook(() =>
     useDatasetDrillInfo(123, 456, mockFormData),
   );
 
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
   // Hook should handle gracefully and set result with empty verbose_map
+  expect(result.current.status).toBe('complete');
   expect(result.current.result).toEqual({ verbose_map: {} });
   expect(result.current.error).toBeNull();
 });
 
 test('useDatasetDrillInfo handles extension returning malformed payload with missing json.result', async () => {
+  setupExtensionMock();
+
   const mockFormData = { viz_type: 'table', datasource: '123__table' };
 
   // Extension returns object but missing json.result
-  mockExtension.mockResolvedValue({ json: {} });
+  mockExtension.mockResolvedValue({ json: {} } as any);
 
-  const { result, waitFor } = renderHook(() =>
+  const { result, waitForNextUpdate } = renderHook(() =>
     useDatasetDrillInfo(123, 456, mockFormData),
   );
 
-  await waitFor(() => expect(result.current.status).toBe('complete'));
+  await waitForNextUpdate();
 
   // Hook should handle gracefully - undefined result gets empty verbose_map
+  expect(result.current.status).toBe('complete');
   expect(result.current.result).toEqual({ verbose_map: {} });
   expect(result.current.error).toBeNull();
+});
+
+test('useDatasetDrillInfo falls back to REST API when extension exists but formData is undefined', async () => {
+  setupExtensionMock();
+
+  // Extension is registered (mockGetExtensionsRegistry returns it)
+  // But formData is NOT provided (undefined)
+  const mockDataset = {
+    id: 123,
+    columns: [{ column_name: 'col1', verbose_name: 'Column 1' }],
+    metrics: [],
+  };
+
+  mockedCachedSupersetGet.mockResolvedValue({
+    json: { result: mockDataset },
+  } as any);
+
+  const { result, waitForNextUpdate } = renderHook(
+    () => useDatasetDrillInfo(123, 456, undefined), // formData is undefined
+  );
+
+  await waitForNextUpdate();
+
+  // Should use REST API, NOT extension
+  expect(mockedCachedSupersetGet).toHaveBeenCalledWith({
+    endpoint: '/api/v1/dataset/123/drill_info/?q=(dashboard_id:456)',
+  });
+  expect(mockExtension).not.toHaveBeenCalled();
+  expect(result.current.status).toBe('complete');
+  expect(result.current.result).toEqual({
+    ...mockDataset,
+    verbose_map: { col1: 'Column 1' },
+  });
 });
