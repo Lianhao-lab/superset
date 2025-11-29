@@ -64,7 +64,7 @@ test.describe('Dataset List', () => {
       promises.push(
         apiDeleteDataset(page, datasetId, {
           failOnStatusCode: false,
-        }).catch(() => {}),
+        }).catch(() => { }),
       );
     }
 
@@ -73,7 +73,7 @@ test.describe('Dataset List', () => {
       promises.push(
         apiDeleteDatabase(page, resources.dbId, {
           failOnStatusCode: false,
-        }).catch(() => {}),
+        }).catch(() => { }),
       );
     }
 
@@ -107,6 +107,26 @@ test.describe('Dataset List', () => {
 
     // Verify visualization switcher shows default viz type (indicates full page load)
     await expect(explorePage.getVizSwitcher()).toBeVisible();
+    await expect(explorePage.getVizSwitcher()).toContainText('Table');
+  });
+
+  test('should open Explore on sample dataset click (birth_names)', async ({
+    page,
+  }) => {
+    const datasetName = 'birth_names';
+    const sampleDataset = await getDatasetByName(page, datasetName);
+    test.skip(!sampleDataset, 'Sample dataset not available. Run `superset load_examples`.');
+
+    await expect(datasetListPage.getDatasetRow(datasetName)).toBeVisible();
+
+    await datasetListPage.clickDatasetName(datasetName);
+    await explorePage.waitForPageLoad();
+
+    const loadedDatasetName = await explorePage.getDatasetName();
+    expect(loadedDatasetName).toContain(datasetName);
+
+    await expect(page.locator('.metric-option-label').first()).toContainText('COUNT(*)');
+    await expect(page.locator('.column-option-label').first()).toContainText('ds');
     await expect(explorePage.getVizSwitcher()).toContainText('Table');
   });
 
@@ -156,6 +176,10 @@ test.describe('Dataset List', () => {
 
     // Get the dataset by name (ID varies by environment)
     const original = await getDatasetByName(page, originalName);
+    test.skip(
+      !original,
+      'Virtual example dataset not available. Run `superset load_examples`.',
+    );
     expect(original).not.toBeNull();
     expect(original!.id).toBeGreaterThan(0);
 
