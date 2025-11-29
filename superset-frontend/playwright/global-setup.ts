@@ -61,7 +61,7 @@ async function globalSetup(config: FullConfig) {
     const authPage = new AuthPage(page);
     await authPage.goto();
     await authPage.waitForLoginForm();
-    await authPage.loginWithCredentials('admin', 'admin');
+    await authPage.loginWithCredentials('admin', 'general');
     await authPage.waitForLoginSuccess();
 
     // Save authentication state for all tests to reuse
